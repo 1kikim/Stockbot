@@ -5,14 +5,20 @@ import requests
 import anthropic
 from pykrx import stock
 
-# 오늘 날짜 및 7일 전 날짜 계산 (YYYYMMDD)
 now = datetime.datetime.now()
 today_str = now.strftime("%Y%m%d")
 past_str = (now - datetime.timedelta(days=7)).strftime("%Y%m%d")
 
+print(f"Data processing started for today: {today_str}, past: {past_str}")
+
 def get_top10(date_str, market):
     try:
-        df = stock.get_market_cap_by_ticker(date_str, market=market)
+        # 주말/휴일 대비 가장 가까운 영업일 자동 탐색
+        target_date = stock.get_nearest_business_day_in_a_week(date_str)
+        df = stock.get_market_cap_by_ticker(target_date, market=market)
+        if df.empty:
+            return []
+        
         df = df.sort_values(by="시가총액", ascending=False).head(10)
         result = []
         for rank, (ticker, row) in enumerate(df.iterrows(), 1):
@@ -20,7 +26,7 @@ def get_top10(date_str, market):
             result.append({
                 "rank": rank,
                 "name": name,
-                "market_cap_okrw": round(int(row["시가총액"]) / 100000000, 1), # 억 원 단위
+                "market_cap_okrw": round(int(row["시가총액"]) / 100000000, 1),
                 "price": int(row["종가"])
             })
         return result
@@ -28,14 +34,23 @@ def get_top10(date_str, market):
         print(f"Error fetching {market} for {date_str}: {e}")
         return []
 
-# 데이터 수집 (오늘 vs 7일 전)
+# 시총 데이터 수집
 kospi_today = get_top10(today_str, "KOSPI")
 kosdaq_today = get_top10(today_str, "KOSDAQ")
 kospi_past = get_top10(past_str, "KOSPI")
 kosdaq_past = get_top10(past_str, "KOSDAQ")
 
-# Claude API 요청
-client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+# 환경 변수 검증
+api_key = os.environ.get("ANTHROPIC_API_KEY")
+telegram_token = os.environ.get("TELEGRAM_TOKEN")
+telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+
+if not api_key:
+    raise ValueError("❌ Error: ANTHROPIC_API_KEY가 Secrets에 설정되지 않았습니다.")
+if not telegram_token or not telegram_chat_id:
+    raise ValueError("❌ Error: TELEGRAM_TOKEN 또는 TELEGRAM_CHAT_ID가 Secrets에 설정되지 않았습니다.")
+
+client = anthropic.Anthropic(api_key=api_key)
 
 prompt = f"""
 당신은 증시 전문 분석가입니다. 오늘({today_str}) 코스피/코스닥 시가총액 Top 10 정보와 일주일 전({past_str}) 대비 변화를 분석해 텔레그램 메시지용 리포트를 작성해 주세요.
@@ -58,6 +73,7 @@ prompt = f"""
 3. 모바일(텔레그램) 화면에서 읽기 좋은 가독성으로 작성할 것.
 """
 
+print("Requesting Claude API...")
 response = client.messages.create(
     model="claude-3-5-haiku-20241022",
     max_tokens=1500,
@@ -66,8 +82,7 @@ response = client.messages.create(
 
 report = response.content[0].text
 
-# 텔레그램 전송
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-requests.post(send_url, data={"chat_id": CHAT_ID, "text": report})
+print("Sending Telegram message...")
+send_url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+res = requests.post(send_url, data={"chat_id": telegram_chat_id, "text": report})
+print(f"Telegram response: {res.status_code}")
