@@ -65,3 +65,9 @@ response = client.messages.create(
 )
 
 report = response.content[0].text
+
+# 텔레그램 전송
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+requests.post(send_url, data={"chat_id": CHAT_ID, "text": report})
