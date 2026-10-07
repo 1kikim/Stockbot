@@ -8,7 +8,6 @@ import anthropic
 def get_naver_market_cap_top10(sosok=0):
     """
     네이버 증권에서 시가총액 Top 10 수집 (sosok=0: 코스피, sosok=1: 코스닥)
-    KRX 아이디/비밀번호 없이 100% 안정적으로 동작합니다.
     """
     url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page=1"
     headers = {
@@ -93,14 +92,38 @@ prompt = f"""
 """
 
 print("Requesting Claude API...")
-# 공식 고정 모델명 사용
-response = client.messages.create(
-    model="claude-3-5-sonnet-20241022",
-    max_tokens=1500,
-    messages=[{"role": "user", "content": prompt}]
-)
 
-report = response.content[0].text
+# 사용 가능한 모델 후보 목록 (자동 대체 검색)
+model_candidates = [
+    "claude-sonnet-4-6",
+    "claude-3-5-sonnet-20240620",
+    "claude-haiku-4-5",
+    "claude-3-haiku-20240307",
+    "claude-3-opus-20240229"
+]
+
+report = None
+
+for model_name in model_candidates:
+    try:
+        print(f"Trying model: {model_name}...")
+        response = client.messages.create(
+            model=model_name,
+            max_tokens=1500,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        report = response.content[0].text
+        print(f"✅ Success with model: {model_name}")
+        break
+    except anthropic.NotFoundError:
+        print(f"⚠️ Model {model_name} not found, trying next candidate...")
+        continue
+    except Exception as e:
+        print(f"⚠️ Model {model_name} failed ({e}), trying next candidate...")
+        continue
+
+if not report:
+    raise RuntimeError("❌ All Claude model candidates failed. Please verify your ANTHROPIC_API_KEY.")
 
 print("Sending Telegram message...")
 send_url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
