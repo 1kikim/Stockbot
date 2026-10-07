@@ -1,9 +1,17 @@
+import os
 import datetime
 import json
-import os
 import requests
-import anthropic
+
+# pykrx 호출 전 KRX 환경변수 체크
+krx_id = os.environ.get("KRX_ID")
+krx_pw = os.environ.get("KRX_PW")
+
+if not krx_id or not krx_pw:
+    print("⚠️ 경고: KRX_ID 또는 KRX_PW가 Secrets에 설정되지 않았습니다.")
+
 from pykrx import stock
+import anthropic
 
 now = datetime.datetime.now()
 today_str = now.strftime("%Y%m%d")
@@ -13,10 +21,10 @@ print(f"Data processing started for today: {today_str}, past: {past_str}")
 
 def get_top10(date_str, market):
     try:
-        # 주말/휴일 대비 가장 가까운 영업일 자동 탐색
         target_date = stock.get_nearest_business_day_in_a_week(date_str)
         df = stock.get_market_cap_by_ticker(target_date, market=market)
-        if df.empty:
+        if df is None or df.empty:
+            print(f"Empty data returned for {market} on {target_date}")
             return []
         
         df = df.sort_values(by="시가총액", ascending=False).head(10)
@@ -74,6 +82,7 @@ prompt = f"""
 """
 
 print("Requesting Claude API...")
+# 최신 Claude 모델 적용
 response = client.messages.create(
     model="claude-3-5-sonnet-latest",
     max_tokens=1500,
@@ -85,4 +94,4 @@ report = response.content[0].text
 print("Sending Telegram message...")
 send_url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
 res = requests.post(send_url, data={"chat_id": telegram_chat_id, "text": report})
-print(f"Telegram response: {res.status_code}")
+print(f"Telegram response status: {res.status_code}")
